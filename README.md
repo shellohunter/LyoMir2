@@ -6,8 +6,7 @@
 </br>
 </br>
 
-<img src='https://github.com/AndrewChien/Blog/blob/master/source/mir01.png'/></br>
-<img src='https://github.com/AndrewChien/Blog/blob/master/source/mir02.png'/></br>
+<img src='https://github.com/AndrewChien/Blog/blob/master/source/lyom2.png'/></br>
 ---
 
 # 群服及技术交流
