@@ -1,88 +1,52 @@
-using GameGate.Conf;
-using GameGate.Filters;
-using GameGate.Services;
+using Microsoft.Extensions.Hosting;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace GameGate
 {
-    /// <summary>
-    /// 服务管理器
-    /// </summary>
-    public class AppService : IHostedLifecycleService
+    public class AppService : BackgroundService
     {
-        private static ConfigManager ConfigManager => ConfigManager.Instance;
-        private static SessionContainer SessionContainer => SessionContainer.Instance;
-        private static ServerManager ServerManager => ServerManager.Instance;
+        private readonly ServerApp _serverApp;
+        private LogQueue LogQueue => LogQueue.Instance;
+        private ConfigManager ConfigManager => ConfigManager.Instance;
 
-        public Task StartingAsync(CancellationToken cancellationToken)
+        public AppService(ServerApp serverApp)
         {
-            LogService.Info("GameGate is starting.");
-            LogService.Info("正在启动服务...");
-            LogService.Info("正在加载配置信息...");
-            GateShare.Initialization();
-            GateShare.Load();
+            _serverApp = serverApp;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            stoppingToken.Register(() => Debug.WriteLine($"GameGate is stopping."));
+            LogQueue.Enqueue("服务已启动成功...", 2);
+            LogQueue.Enqueue("欢迎使用翎风系列游戏软件...", 0);
+            LogQueue.Enqueue("网站:http://www.gameofmir.com", 0);
+            LogQueue.Enqueue("论坛:http://bbs.gameofmir.com", 0);
+            LogQueue.Enqueue("智能反外挂程序已启动...", 0);
+            LogQueue.Enqueue("智能反外挂程序云端已连接...", 0);
+            _serverApp.StartService();
+            await _serverApp.Start();
+        }
+
+        public override Task StartAsync(CancellationToken cancellationToken)
+        {
+            LogQueue.EnqueueDebugging("GameGate is starting.");
+            LogQueue.Enqueue("正在启动服务...", 2);
+            LogQueue.Enqueue("正在加载配置信息...", 3);
             ConfigManager.LoadConfig();
-            ConfigManager.SaveConfig();
-            GateShare.HardwareFilter = new HardwareFilter();
-            LogService.Info("配置信息加载完成...");
-            return Task.CompletedTask;
+            GateShare.HWFilter = new HardwareFilter();
+            LogQueue.Enqueue("配置信息加载完成...", 3);
+            return base.StartAsync(cancellationToken);
         }
 
-        /// <summary>
-        /// 开启服务端和客户端
-        /// </summary>
-        /// <param name="cancellationToken"></param>
-        /// <returns></returns>
-        public Task StartAsync(CancellationToken cancellationToken)
+        public override Task StopAsync(CancellationToken cancellationToken)
         {
-            ServerManager.Initialize();
-            ServerManager.StartServerThreadMessageWork(cancellationToken);//开启服务端池
-            _ = ServerManager.StartClientMessageWork(cancellationToken);//开启客户端池
-            return Task.CompletedTask;
-        }
-
-        public Task StartedAsync(CancellationToken cancellationToken)
-        {
-            if (ConfigManager.GateConfig.UseCloudGate)
-            {
-                if (string.IsNullOrEmpty(ConfigManager.GateConfig.CloudAddr) || ConfigManager.GateConfig.CloudPort <= 0)
-                {
-                    LogService.Info("智能防外挂云网关服务地址配置错误.请检查配置文件是否配置正确.");
-                }
-                if (string.IsNullOrEmpty(ConfigManager.GateConfig.LicenseCode))
-                {
-                    LogService.Info("智能防外挂云网关授权码为空或配置错误,请检查配置文件是否配置正确.");
-                }
-                //var cloudEndpoint = new IPEndPoint(IPAddress.Parse(ConfigManager.GateConfig.CloudAddr), ConfigManager.GateConfig.CloudPort);
-                //_cloudClient.Start(cloudEndpoint);
-                LogService.Info("智能反外挂程序已启动...");
-            }
-            LogService.Info("服务已启动成功...");
-            LogService.Info("欢迎使用LYO引擎...");
-            LogService.Info("网站:http://www.chengxihot.top");
-            LogService.Info("论坛:http://bbs.chengxihot.top");
-            ServerManager.Start(cancellationToken);
-            //await SessionContainer.ProcessSendMessage(stoppingToken);
-            return Task.CompletedTask;
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken)
-        {
-            LogService.Info("正在停止服务...");
-            ServerManager.Stop();
-            LogService.Info("服务停止成功...");
-            return Task.CompletedTask;
-        }
-
-        public Task StoppingAsync(CancellationToken cancellationToken)
-        {
-            LogService.Info("正在停止服务...");
-            return Task.CompletedTask;
-        }
-
-        public Task StoppedAsync(CancellationToken cancellationToken)
-        {
-            LogService.Info("服务已停止...");
-            return Task.CompletedTask;
+            Debug.WriteLine("GameGate is stopping.");
+            LogQueue.Enqueue("正在停止服务...", 2);
+            _serverApp.StopService();
+            LogQueue.Enqueue("服务停止成功...", 2);
+            return base.StopAsync(cancellationToken);
         }
     }
 }

@@ -1,97 +1,42 @@
-using OpenMir2.Common;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using SystemModule.Common;
 
-namespace LoginGate;
-
-public class GateShare
+namespace LoginGate
 {
-    /// <summary>
-    /// 最大用户数
-    /// </summary>
-    public const int MaxSession = 10000;
-
-    /// <summary>
-    /// 网关游戏服务器之间检测超时时间长度
-    /// </summary>
-    public const int CheckServerTimeOutTime = 10 * 1000;
-
-    /// <summary>
-    /// 心跳响应超时时间
-    /// </summary>
-    public const int KeepAliveTickTimeOut = 30 * 1000;
-
-    /// <summary>
-    /// 禁止连接IP列表
-    /// </summary>
-    public static StringList BlockIPList = null;
-
-    /// <summary>
-    /// 临时禁止连接IP列表
-    /// </summary>
-    public static IList<string> TempBlockIPList = null;
-
-    public static int nMaxConnOfIPaddr = 50;
-    public static IServiceProvider ServiceProvider = null;
-
-    public static void LoadBlockIPFile()
+    public class GateShare
     {
-        //AddMainLogMsg("正在加载IP过滤配置信息...", 4);
-        //var sFileName = ".\\BlockIPList.txt";
-        //if (File.Exists(sFileName))
-        //{
-        //    BlockIPList.LoadFromFile(sFileName);
-        //}
-        //AddMainLogMsg("IP过滤配置信息加载完成...", 4);
-    }
+        
+        
+        
+        public static long dwCheckServerTimeOutTime = 3 * 60 * 1000;
+        
+        
+        
+        public static StringList BlockIPList = null;
+        
+        
+        
+        public static IList<string> TempBlockIPList = null;
+        public static int nMaxConnOfIPaddr = 50;
+        public static ConcurrentDictionary<int, ClientThread> ServerGateList;
 
-    public static void Initialization()
-    {
-        BlockIPList = new StringList();
-        TempBlockIPList = new List<string>();
-    }
-
-    private bool IsBlockIP(string sIPaddr)
-    {
-        bool result = false;
-        string sBlockIPaddr;
-        for (int i = 0; i < TempBlockIPList.Count; i++)
+        public static void LoadBlockIPFile()
         {
-            sBlockIPaddr = TempBlockIPList[i];
-            if (string.Compare(sIPaddr, sBlockIPaddr, StringComparison.OrdinalIgnoreCase) == 0)
-            {
-                result = true;
-                break;
-            }
+            
+            
+            
+            
+            
+            
+            
         }
 
-        for (int i = 0; i < BlockIPList.Count; i++)
+        public static void Initialization()
         {
-            sBlockIPaddr = BlockIPList[i];
-            if (HUtil32.CompareLStr(sIPaddr, sBlockIPaddr))
-            {
-                result = true;
-                break;
-            }
+            BlockIPList = new StringList();
+            TempBlockIPList = new List<string>();
+            ServerGateList = new ConcurrentDictionary<int, ClientThread>();
         }
-
-        return result;
-    }
-
-    private bool IsConnLimited(string sIPaddr)
-    {
-        bool result = false;
-        int nCount = 0;
-        //for (var i = 0; i < ServerSocket.Socket.ActiveConnections; i++)
-        //{
-        //    if ((sIPaddr).CompareTo((ServerSocket.Connections[i].RemoteAddress)) == 0)
-        //    {
-        //        nCount++;
-        //    }
-        //}
-        if (nCount > nMaxConnOfIPaddr)
-        {
-            result = true;
-        }
-
-        return result;
     }
 }

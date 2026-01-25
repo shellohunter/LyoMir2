@@ -1,3 +1,7 @@
+.git
+.github
+.vs
+.vscode
 *.log
 *.tmp
 **/bin/

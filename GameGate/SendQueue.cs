@@ -1,58 +1,64 @@
-using GameGate.Services;
+using System.Net.Sockets;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace GameGate
 {
     public class SendQueue
     {
-        private readonly Channel<SessionMessage> _sendQueue;
-        private readonly ServerManager ServerMgr = ServerManager.Instance;
+        private readonly Channel<SendQueueData> _sendQueue;
+        private readonly LogQueue _logQueue = LogQueue.Instance;
 
         public SendQueue()
         {
-            _sendQueue = Channel.CreateUnbounded<SessionMessage>();
+            _sendQueue = Channel.CreateUnbounded<SendQueueData>();
         }
 
-        /// <summary>
-        /// 返回等待发送到客户端消息的消息数量
-        /// </summary>
-        public int QueueCount => _sendQueue.Reader.Count;
+        public int GetQueueCount => _sendQueue.Reader.Count;
 
-        /// <summary>
-        /// 添加到发送队列
-        /// </summary>
-        public void AddClientQueue(SessionMessage sessionPacket)
+        
+        
+        
+        public void AddToQueue(TSessionInfo session, byte[] buffer)
         {
-            _sendQueue.Writer.TryWrite(sessionPacket);
-        }
-
-        /// <summary>
-        /// 消息发送队列
-        /// </summary>
-        public void StartProcessQueueSend(CancellationToken stoppingToken)
-        {
-            Task.Factory.StartNew(async () =>
+            _sendQueue.Writer.TryWrite(new SendQueueData()
             {
-                while (await _sendQueue.Reader.WaitToReadAsync(stoppingToken))
+                Session = session,
+                Buffer = buffer
+            });
+        }
+
+        
+        
+        
+        public async Task ProcessSendQueue()
+        {
+            while (await _sendQueue.Reader.WaitToReadAsync())
+            {
+                if (_sendQueue.Reader.TryRead(out var queueData))
                 {
-                    if (_sendQueue.Reader.TryRead(out SessionMessage sendPacket))
+                    var resp = queueData.SendBuffer();
+                    if (resp != queueData.Buffer.Length)
                     {
-                        try
-                        {
-                            _ = ServerMgr.Send(sendPacket);
-                        }
-                        catch (Exception e)
-                        {
-                            LogService.Error(e.StackTrace);
-                        }
-                        finally
-                        {
-                            GateShare.BytePool.Return(sendPacket.Buffer, true);//必须要清空申请的byte数组
-                            GateShare.PacketMessagePool.Return(sendPacket);
-                        }
+                        _logQueue.Enqueue("向客户端发送数据包失败", 5);
                     }
                 }
-            }, stoppingToken);
+            }
+        }
+    }
+
+    public struct SendQueueData
+    {
+        public TSessionInfo Session;
+        public byte[] Buffer;
+
+        public int SendBuffer()
+        {
+            if (Session.Socket == null || !Session.Socket.Connected)
+            {
+                return 0;
+            }
+            return Session.Socket.Send(Buffer, 0, Buffer.Length, SocketFlags.None);
         }
     }
 }

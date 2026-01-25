@@ -1,81 +1,46 @@
-/// <summary>
-/// 服务管理器
-/// </summary>
-public class AppService : IHostedLifecycleService
+using LoginGate.Conf;
+using Microsoft.Extensions.Hosting;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace LoginGate
 {
-    private readonly ConfigManager _configManager;
-    private readonly ServerManager _serverManager;
-    private readonly ClientManager _clientManager;
-
-    /// <summary>
-    /// lyo
-    /// </summary>
-    /// <param name="ip"></param>
-    /// <returns></returns>
-    public static AppService BuildAppService(IServiceProvider ip)
+    public class AppService : BackgroundService
     {
-        var confm = new ConfigManager(Path.Combine(AppContext.BaseDirectory, "config.conf"));
-        var ssnm = new SessionManager(confm);
-        var srvm = new ServerManager(ip, ssnm, confm);
-        var cltm = new ClientManager(ssnm,confm,srvm);
-        return new AppService(confm, srvm, cltm);
-    }
+        private readonly ServerApp _serverApp;
+        private readonly LogQueue _logQueue = LogQueue.Instance;
+        private ConfigManager ConfigManager => ConfigManager.Instance;
 
-    public AppService(ConfigManager configManager, ServerManager serverManager, ClientManager clientManager)
-    {
-        _configManager = configManager;
-        _serverManager = serverManager;
-        _clientManager = clientManager;
-    }
+        public AppService(ServerApp serverApp)
+        {
+            _serverApp = serverApp;
+        }
 
-    /// <summary>
-    /// 初始化及文件加载
-    /// </summary>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public Task StartingAsync(CancellationToken cancellationToken)
-    {
-        GateShare.Initialization();
-        _configManager.LoadConfig();
-        _serverManager.Initialization();
-        _clientManager.Initialization();
-        return Task.CompletedTask;
-    }
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            stoppingToken.Register(() => _logQueue.EnqueueDebugging($"GameGate is stopping."));
+            await _serverApp.Start();
+        }
 
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        _serverManager.ProcessLoginMessage(cancellationToken);
-        _clientManager.ProcessSendMessage(cancellationToken);
-        return Task.CompletedTask;
-    }
+        public override Task StartAsync(CancellationToken cancellationToken)
+        {
+            _logQueue.EnqueueDebugging($"GameGate is starting.");
+            _logQueue.Enqueue("正在启动服务...", 2);
+            GateShare.Initialization();
+            ConfigManager.LoadConfig();
+            _serverApp.StartService();
+            _logQueue.Enqueue("服务已启动成功...", 2);
+            _logQueue.Enqueue("欢迎使用翎风系列游戏软件...", 0);
+            _logQueue.Enqueue("网站:http://www.gameofmir.com", 0);
+            _logQueue.Enqueue("论坛:http://bbs.gameofmir.com", 0);
+            return base.StartAsync(cancellationToken);
+        }
 
-    public Task StartedAsync(CancellationToken cancellationToken)
-    {
-        _serverManager.Start();
-        _clientManager.Start();
-        LogService.Info("服务已启动成功...");
-        LogService.Info("欢迎使用LYO引擎...");
-        LogService.Info("网站:http://www.chengxihot.top");
-        LogService.Info("论坛:http://bbs.chengxihot.top");
-        return Task.CompletedTask;
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        LogService.Info("正在停止服务...");
-        _serverManager.Stop();
-        _clientManager.Stop();
-        LogService.Info("服务停止成功...");
-        return Task.CompletedTask;
-    }
-
-    public Task StoppingAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
-
-    public Task StoppedAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
+        public override Task StopAsync(CancellationToken cancellationToken)
+        {
+            _logQueue.EnqueueDebugging($"GameGate is stopping.");
+            _serverApp.StopService();
+            return base.StopAsync(cancellationToken);
+        }
     }
 }

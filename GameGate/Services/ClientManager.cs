@@ -1,54 +1,91 @@
-namespace GameGate.Services
+using System.Collections.Concurrent;
+using SystemModule;
+
+namespace GameGate
 {
-    /// <summary>
-    /// GameGate->GameSrv
-    /// </summary>
+    
+    
+    
     public class ClientManager
     {
         private static readonly ClientManager instance = new ClientManager();
         public static ClientManager Instance => instance;
-        private static ServerManager ServerManager => ServerManager.Instance;
 
-        private readonly ConcurrentDictionary<string, ClientThread> _clientThreadMap;
+        private ServerManager ServerManager => ServerManager.Instance;
+        private LogQueue LogQueue => LogQueue.Instance;
+        private ConfigManager ConfigManager => ConfigManager.Instance;
+
+        private readonly ConcurrentDictionary<int, ClientThread> _clientThreadMap;
 
         private ClientManager()
         {
-            _clientThreadMap = new ConcurrentDictionary<string, ClientThread>();
+            _clientThreadMap = new ConcurrentDictionary<int, ClientThread>();
         }
 
-        /// <summary>
-        /// 添加用户对应网关
-        /// </summary>
-        public void AddClientThread(string connectionId, ClientThread clientThread)
+        public void Initialization()
         {
-            _clientThreadMap.TryAdd(connectionId, clientThread); //链接成功后建立对应关系
-        }
-
-        /// <summary>
-        /// 获取用户链接对应网关
-        /// </summary>
-        /// <returns></returns>
-        public ClientThread GetClientThread(string connectionId)
-        {
-            if (!string.IsNullOrEmpty(connectionId))
+            for (var i = 0; i < ConfigManager.GateConfig.GateCount; i++)
             {
-                return _clientThreadMap.TryGetValue(connectionId, out ClientThread userClinet) ? userClinet : null;
+                var gameGate = ConfigManager.GameGateList[i];
+                var serverAddr = gameGate.sServerAdress;
+                var serverPort = gameGate.nServerPort;
+                if (string.IsNullOrEmpty(serverAddr) || serverPort == -1)
+                {
+                    LogQueue.Enqueue($"游戏网关配置文件服务器节点[ServerAddr{i}]配置获取失败.", 1);
+                    return;
+                }
+                ServerManager.AddServer(new ServerService(i, gameGate));
+            }
+        }
+
+        
+        
+        
+        public void AddClientThread(int connectionId, ClientThread clientThread)
+        {
+            _clientThreadMap.TryAdd(connectionId, clientThread); 
+        }
+
+        
+        
+        
+        
+        public ClientThread GetClientThread(int connectionId)
+        {
+            if (connectionId > 0)
+            {
+                return _clientThreadMap.TryGetValue(connectionId, out var userClinet) ? userClinet : null;
             }
             return null;
         }
 
-        /// <summary>
-        /// 从字典删除网关对应关系
-        /// </summary>
-        public void DeleteClientThread(string connectionId)
+        
+        
+        
+        public void DeleteClientThread(int connectionId)
         {
-            _clientThreadMap.TryRemove(connectionId, out ClientThread userClinet);
+            _clientThreadMap.TryRemove(connectionId, out var userClinet);
         }
 
-        public ClientThread[] GetClients()
+        
+        
+        
+        public void CheckSessionStatus(ClientThread clientThread)
         {
-            return !_clientThreadMap.IsEmpty ? _clientThreadMap.Values.ToArray() : null;
+            if (clientThread.GateReady)
+            {
+                clientThread.SendServerMsg(Grobal2.GM_CHECKCLIENT, 0, 0, 0, 0, "");
+                clientThread.CheckServerFailCount = 0;
+                return;
+            }
+            if (clientThread.CheckServerFail && clientThread.CheckServerFailCount <= 20)
+            {
+                clientThread.ReConnected();
+                clientThread.CheckServerFailCount++;
+                LogQueue.EnqueueDebugging($"重新与服务器[{clientThread.GetSocketIp()}]建立链接.失败次数:[{clientThread.CheckServerFailCount}]");
+                return;
+            }
+            clientThread.CheckServerIsTimeOut();
         }
-
     }
 }

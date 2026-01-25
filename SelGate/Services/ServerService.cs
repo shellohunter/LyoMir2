@@ -1,191 +1,158 @@
-using OpenMir2;
-using SelGate.Conf;
-using SelGate.Datas;
 using System;
-using System.Net;
-using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using TouchSocket.Core;
-using TouchSocket.Sockets;
+using SystemModule;
+using SystemModule.Sockets;
 
 namespace SelGate.Services
 {
-    /// <summary>
-    /// 角色服务（开启SelGate：7100）
-    /// </summary>
+    
+    
+    
     public class ServerService
     {
-        /// <summary>
-        /// 角色服务（开启SelGate：7100）
-        /// Mir2-SelGate
-        /// </summary>
-        private readonly TcpService _serverSocket;
+        private readonly LogQueue _logQueue;
+        private readonly ISocketServer _serverSocket;
         private readonly SessionManager _sessionManager;
-        /// <summary>
-        /// 接收封包（客户端-》网关）
-        /// </summary>
-        private readonly Channel<MessageData> _sendQueue;
+        
+        
+        
+        private Channel<TMessageData> _snedQueue = null;
         private readonly ClientManager _clientManager;
         private readonly ConfigManager _configManager;
 
-        /// <summary>
-        /// 角色服务（开启SelGate：7100）
-        /// </summary>
-        /// <param name="sessionManager"></param>
-        /// <param name="clientManager"></param>
-        /// <param name="configManager"></param>
-        public ServerService(SessionManager sessionManager, ClientManager clientManager, ConfigManager configManager)
+        public ServerService(LogQueue logQueue, ConfigManager configManager, SessionManager sessionManager, ClientManager clientManager)
         {
+            _logQueue = logQueue;
             _sessionManager = sessionManager;
             _clientManager = clientManager;
             _configManager = configManager;
-            _sendQueue = Channel.CreateUnbounded<MessageData>();
-            _serverSocket = new TcpService();
-            _serverSocket.Connected += ServerSocketClientConnect;
-            _serverSocket.Disconnected += ServerSocketClientDisconnect;
-            _serverSocket.Received += ServerSocketClientRead;
+            _snedQueue = Channel.CreateUnbounded<TMessageData>();
+            _serverSocket = new ISocketServer(ushort.MaxValue, 512);
+            _serverSocket.OnClientConnect += ServerSocketClientConnect;
+            _serverSocket.OnClientDisconnect += ServerSocketClientDisconnect;
+            _serverSocket.OnClientRead += ServerSocketClientRead;
+            _serverSocket.OnClientError += ServerSocketClientError;
+            _serverSocket.Init();
         }
 
         public void Start()
         {
-            _serverSocket.Setup(new TouchSocketConfig().SetListenIPHosts(new IPHost(IPAddress.Any, GateShare.GatePort)));
-            _serverSocket.Start();
-            LogService.Info($"登陆网关[127.0.0.1:{GateShare.GatePort}]已启动.");
+            _serverSocket.Start(GateShare.GateAddr, GateShare.GatePort);
         }
 
         public void Stop()
         {
-            _serverSocket.Stop();
+            _serverSocket.Shutdown();
         }
 
-        /// <summary>
-        /// 处理客户端发过来的消息
-        /// </summary>
-        public void ProcessReviceMessage(CancellationToken stoppingToken)
+        
+        
+        
+        public async Task ProcessReviceMessage()
         {
-            Task.Factory.StartNew(async () =>
+            while (await _snedQueue.Reader.WaitToReadAsync())
             {
-                while (await _sendQueue.Reader.WaitToReadAsync(stoppingToken))
+                if (_snedQueue.Reader.TryRead(out var message))
                 {
-                    while (_sendQueue.Reader.TryRead(out MessageData message))
-                    {
-                        ClientSession clientSession = _sessionManager.GetSession(message.SessionId);
-                        clientSession?.HandleUserPacket(message);
-                    }
+                    var clientSession = _sessionManager.GetSession(message.SessionId);
+                    clientSession?.HandleUserPacket(message);
                 }
-            }, stoppingToken, TaskCreationOptions.LongRunning, TaskScheduler.Current);
-        }
-
-        public void SendMessage(string connectionId, byte[] data)
-        {
-            _serverSocket.Send(connectionId, data);
-        }
-
-        public void SendMessage(string connectionId, byte[] data, int len)
-        {
-            _serverSocket.Send(connectionId, data, 0, len);
-        }
-
-        public void CloseClient(string connectionId)
-        {
-            if (_serverSocket.TryGetSocketClient(connectionId, out SocketClient client))
-            {
-                client.Close();
             }
         }
 
-        private Task ServerSocketClientConnect(ITcpClientBase client, ConnectedEventArgs e)
+        private void ServerSocketClientConnect(object sender, AsyncUserToken e)
         {
-            ClientThread clientThread = _clientManager.GetClientThread();
+            var clientThread = _clientManager.GetClientThread();
             if (clientThread == null)
             {
-                LogService.Info("获取服务器实例失败。");
-                return Task.CompletedTask;
+                _logQueue.Enqueue("获取服务器实例失败。", 5);
+                return;
             }
-            string sRemoteAddress = client.MainSocket.RemoteEndPoint.GetIP();
-            LogService.Info($"用户[{sRemoteAddress}]分配到数据库服务器[{clientThread.ClientId}] Server:{clientThread.GetEndPoint()}");
-            SessionInfo sessionInfo = null;
-            for (int nIdx = 0; nIdx < ClientThread.MaxSession; nIdx++)
+            var sRemoteAddress = e.RemoteIPaddr;
+            _logQueue.EnqueueDebugging($"用户[{sRemoteAddress}]分配到数据库服务器[{clientThread.ClientId}] Server:{clientThread.GetSocketIp()}");
+            TSessionInfo sessionInfo = null;
+            for (var nIdx = 0; nIdx < clientThread.MaxSession; nIdx++)
             {
                 sessionInfo = clientThread.SessionArray[nIdx];
                 if (sessionInfo == null)
                 {
-                    sessionInfo = new SessionInfo();
-                    sessionInfo.SocketId = ((SocketClient)client).Id;
+                    sessionInfo = new TSessionInfo();
+                    sessionInfo.Socket = e.Socket;
+                    sessionInfo.SocketId = e.ConnectionId;
                     sessionInfo.dwReceiveTick = HUtil32.GetTickCount();
-                    sessionInfo.ClientIP = sRemoteAddress;
+                    sessionInfo.ClientIP = e.RemoteIPaddr;
                     break;
                 }
             }
             if (sessionInfo != null)
             {
-                LogService.Info("开始连接: " + sRemoteAddress);
-                _clientManager.AddClientThread(sessionInfo.SocketId, clientThread);//链接成功后建立对应关系
-                ClientSession userSession = new ClientSession(_configManager, sessionInfo, clientThread);
+                _logQueue.Enqueue("开始连接: " + sRemoteAddress, 5);
+                _clientManager.AddClientThread(e.ConnectionId, clientThread);//链接成功后建立对应关系
+                var userSession = new ClientSession(_configManager, sessionInfo, clientThread);
                 userSession.UserEnter();
                 _sessionManager.AddSession(sessionInfo.SocketId, userSession);
             }
             else
             {
-                LogService.Info("禁止连接: " + sRemoteAddress);
+                e.Socket.Close();
+                _logQueue.Enqueue("禁止连接: " + sRemoteAddress, 1);
             }
-            return Task.CompletedTask;
         }
 
-        private Task ServerSocketClientDisconnect(IClient client, DisconnectEventArgs e)
+        private void ServerSocketClientDisconnect(object sender, AsyncUserToken e)
         {
-            SocketClient clientSoc = ((SocketClient)client);
-            string nSockIndex = clientSoc.Id;
-            string sRemoteAddr = clientSoc.IP;
-            ClientThread clientThread = _clientManager.GetClientThread(nSockIndex);
+            var sRemoteAddr = e.RemoteIPaddr;
+            var nSockIndex = e.ConnectionId;
+            var clientThread = _clientManager.GetClientThread(nSockIndex);
             if (clientThread != null && clientThread.boGateReady)
             {
-                ClientSession userSession = _sessionManager.GetSession(nSockIndex);
+                var userSession = _sessionManager.GetSession(nSockIndex);
                 if (userSession != null)
                 {
-                    userSession.UserLeave();
-                    userSession.CloseSession();
-                    LogService.Info("断开连接: " + sRemoteAddr);
+                    var clientSession = _sessionManager.GetSession(e.ConnectionId);
+                    clientSession?.UserLeave();
+                    clientSession?.CloseSession();
+                    _logQueue.Enqueue("断开连接: " + sRemoteAddr, 5);
                 }
                 _sessionManager.CloseSession(nSockIndex);
             }
             else
             {
-                LogService.Info("断开链接: " + sRemoteAddr);
-                LogService.Info($"获取用户对应网关失败 RemoteAddr:[{sRemoteAddr}] ConnectionId:[{clientSoc.Id}]");
+                _logQueue.Enqueue("断开链接: " + sRemoteAddr, 5);
+                _logQueue.EnqueueDebugging($"获取用户对应网关失败 RemoteAddr:[{sRemoteAddr}] ConnectionId:[{e.ConnectionId}]");
             }
-            _clientManager.DeleteClientThread(nSockIndex);
-            return Task.CompletedTask;
+            _clientManager.DeleteClientThread(e.ConnectionId);
         }
 
-        private Task ServerSocketClientRead(IClient client, ReceivedDataEventArgs e)
+        private void ServerSocketClientError(object sender, AsyncSocketErrorEventArgs e)
         {
-            LogService.Info($"SelGate（7100）：收到来自于客户端{(client as SocketClient)?.IP}:{(client as SocketClient)?.Port}的消息");
-            SocketClient clientSoc = client as SocketClient;
-            string sRemoteAddress = clientSoc.IP;
+            _logQueue.Enqueue($"客户端链接错误.[{e.Exception.ErrorCode}]", 5);
+        }
 
-
-            ClientThread userClient = _clientManager.GetClientThread(clientSoc.Id);
+        private void ServerSocketClientRead(object sender, AsyncUserToken token)
+        {
+            var connectionId = token.ConnectionId;
+            var userClient = _clientManager.GetClientThread(connectionId);
+            var sRemoteAddress = token.RemoteIPaddr;
             if (userClient == null)
             {
-                LogService.Info("非法攻击: " + sRemoteAddress);
-                LogService.Info($"获取用户对应网关失败 RemoteAddr:[{sRemoteAddress}] ConnectionId:[{clientSoc.Id}]");
-                return Task.CompletedTask;
+                _logQueue.Enqueue("非法攻击: " + sRemoteAddress, 5);
+                _logQueue.EnqueueDebugging($"获取用户对应网关失败 RemoteAddr:[{sRemoteAddress}] ConnectionId:[{connectionId}]");
+                return;
             }
             if (!userClient.boGateReady)
             {
-                LogService.Info("未就绪: " + sRemoteAddress);
-                LogService.Info($"游戏引擎链接失败 Server:[{userClient.GetEndPoint()}] ConnectionId:[{clientSoc.Id}]");
-                return Task.CompletedTask;
+                _logQueue.Enqueue("未就绪: " + sRemoteAddress, 5);
+                _logQueue.EnqueueDebugging($"游戏引擎链接失败 Server:[{userClient.GetSocketIp()}] ConnectionId:[{connectionId}]");
+                return;
             }
-            byte[] data = new byte[e.ByteBlock.Len];
-            Array.Copy(e.ByteBlock.Buffer, 0, data, 0, data.Length);
-            MessageData userData = new MessageData();
+            var data = new byte[token.BytesReceived];
+            Array.Copy(token.ReceiveBuffer, token.Offset, data, 0, data.Length);
+            var userData = new TMessageData();
             userData.Body = data;
-            userData.SessionId = clientSoc.Id;
-            _sendQueue.Writer.TryWrite(userData);
-            return Task.CompletedTask;
+            userData.SessionId = connectionId;
+            _snedQueue.Writer.TryWrite(userData);
         }
     }
 }

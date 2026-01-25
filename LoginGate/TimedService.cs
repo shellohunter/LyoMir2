@@ -1,89 +1,110 @@
-﻿/// <summary>
-/// 定时任务
-/// </summary>
-public class TimedService : BackgroundService
+﻿using Microsoft.Extensions.Hosting;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using SystemModule;
+
+namespace LoginGate
 {
-    private int _processDelayTick = 0;
-    private int _heartInterval = 0;
-    private readonly SessionManager _sessionManager;
-    private readonly ClientManager _clientManager;
-
-    public TimedService(ClientManager clientManager, SessionManager sessionManager)
+    public class TimedService : BackgroundService
     {
-        _clientManager = clientManager;
-        _sessionManager = sessionManager;
-    }
+        private LogQueue _logQueue => LogQueue.Instance;
+        private ServerManager ServerManager => ServerManager.Instance;
+        private SessionManager SessionManager => SessionManager.Instance;
+        private ClientManager ClientManager => ClientManager.Instance;
+        private int _processDelayTick = 0;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        _processDelayTick = HUtil32.GetTickCount();
-        _heartInterval = HUtil32.GetTickCount();
-        while (!stoppingToken.IsCancellationRequested)
+        public TimedService()
         {
-            ProcessDelayMsg();
-            ProcessHeartbeat();
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+
         }
-    }
 
-    private void ProcessHeartbeat()
-    {
-        if (HUtil32.GetTickCount() - _heartInterval > 10000)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _heartInterval = HUtil32.GetTickCount();
-            IList<ClientThread> clientList = _clientManager.ServerGateList();
-            for (int i = 0; i < clientList.Count; i++)
+            while (!stoppingToken.IsCancellationRequested)
             {
-                if (clientList[i] == null)
-                {
-                    continue;
-                }
-                _clientManager.ProcessClientHeart(clientList[i]);
+                OutMianMessage();
+                ProcessDelayMsg();
+                await Task.Delay(TimeSpan.FromMilliseconds(10), stoppingToken);
             }
         }
-    }
 
-    private void ProcessDelayMsg()
-    {
-        if (HUtil32.GetTickCount() - _processDelayTick > 1000)
+        private void OutMianMessage()
         {
-            _processDelayTick = HUtil32.GetTickCount();
-            IList<ClientThread> clientList = _clientManager.ServerGateList();
-            for (int i = 0; i < clientList.Count; i++)
+            while (!_logQueue.MessageLog.IsEmpty)
             {
-                if (clientList[i] == null)
-                {
-                    continue;
-                }
+                string message;
 
-                if (clientList[i].SessionArray == null)
-                {
-                    continue;
-                }
+                if (!_logQueue.MessageLog.TryDequeue(out message)) continue;
 
-                for (int j = 0; j < clientList[i].SessionArray.Length; j++)
+                Console.WriteLine(message);
+            }
+
+            while (!_logQueue.DebugLog.IsEmpty)
+            {
+                string message;
+
+                if (!_logQueue.DebugLog.TryDequeue(out message)) continue;
+
+                Console.BackgroundColor = ConsoleColor.Red;
+                Console.WriteLine(message);
+                Console.ResetColor();
+            }
+        }
+
+        private void ProcessDelayMsg()
+        {
+            if (HUtil32.GetTickCount() - _processDelayTick > 2000)
+            {
+                _processDelayTick = HUtil32.GetTickCount();
+                var _clientList = ServerManager.GetServerList();
+                for (var i = 0; i < _clientList.Count; i++)
                 {
-                    TSessionInfo session = clientList[i].SessionArray[j];
-                    if (session == null)
+                    if (_clientList[i] == null)
                     {
                         continue;
                     }
-
-                    ClientSession userSession = _sessionManager.GetSession(session.ConnectionId);
-                    if (userSession == null)
+                    if (_clientList[i].ClientThread == null)
                     {
                         continue;
                     }
-
-                    bool success = false;
-                    userSession.HandleDelayMsg(ref success);
-                    if (success)
+                    ClientManager.CheckSessionStatus(_clientList[i].ClientThread);
+                    if (_clientList[i].ClientThread.SessionArray == null)
                     {
-                        _sessionManager.CloseSession(session.ConnectionId);
-                        clientList[i].SessionArray[j] = null;
+                        continue;
+                    }
+                    for (var j = 0; j < _clientList[i].ClientThread.SessionArray.Length; j++)
+                    {
+                        var session = _clientList[i].ClientThread.SessionArray[j];
+                        if (session == null)
+                        {
+                            continue;
+                        }
+                        if (session.Socket == null)
+                        {
+                            continue;
+                        }
+                        var userSession = SessionManager.GetSession(session.SocketId);
+                        if (userSession == null)
+                        {
+                            continue;
+                        }
+                        var success = false;
+                        userSession.HandleDelayMsg(ref success);
+                        if (success)
+                        {
+                            SessionManager.CloseSession(session.SocketId);
+                            _clientList[i].ClientThread.SessionArray[j].Socket = null;
+                            _clientList[i].ClientThread.SessionArray[j] = null;
+                        }
                     }
                 }
             }
+        }
+
+        public override void Dispose()
+        {
+            base.Dispose();
         }
     }
 }

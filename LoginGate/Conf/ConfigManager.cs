@@ -1,122 +1,71 @@
-using OpenMir2.Common;
+using System;
+using System.IO;
+using SystemModule.Common;
 
-namespace LoginGate.Conf;
-
-/// <summary>
-/// conf文件管理器（config.conf）
-/// </summary>
-public class ConfigManager : ConfigFile
+namespace LoginGate.Conf
 {
-    public readonly GateConfig GetConfig;
-    public readonly GameGateInfo[] GameGates;
-
-    /// <summary>
-    /// conf文件管理器（config.conf）
-    /// </summary>
-    /// <param name="szFileName"></param>
-    public ConfigManager(string szFileName) : base(szFileName)
+    public class ConfigManager : IniFile
     {
-        Load();
-        GetConfig = new GateConfig();
-        GameGates = new GameGateInfo[32];
-        for (int i = 0; i < GameGates.Length; i++)
+        public GateConfig GateConfig;
+        public GameGateInfo[] GameGateList;
+        private static string sConfitFile = Path.Combine(AppContext.BaseDirectory, "config.conf");
+
+        private static readonly ConfigManager instance = new ConfigManager(sConfitFile);
+
+        public static ConfigManager Instance
         {
-            GameGates[i].LoginServer = "127.0.0.1";
-            GameGates[i].LoginPort = 5500;
-            GameGates[i].GateAddress = "127.0.0.1";
-            GameGates[i].GatePort = 7000 + i;
+            get { return instance; }
+        }
+
+        public ConfigManager(string szFileName) : base(szFileName)
+        {
+            Load();
+            GateConfig = new GateConfig();
+            GameGateList = new GameGateInfo[32];
+            for (var i = GameGateList.GetLowerBound(0); i <= GameGateList.GetUpperBound(0); i++)
+            {
+                GameGateList[i].sServerAdress = "127.0.0.1";
+                GameGateList[i].nServerPort = 5500;
+                GameGateList[i].nGatePort = 7000 + i;
+            }
+        }
+
+        public void LoadConfig()
+        {
+            GateConfig.m_nClientTimeOutTime = ReadInteger("Integer", "ClientTimeOutTime", GateConfig.m_nClientTimeOutTime);
+            if (GateConfig.m_nClientTimeOutTime < 10 * 1000)
+            {
+                GateConfig.m_nClientTimeOutTime = 10 * 1000;
+                WriteInteger("Integer", "ClientTimeOutTime", GateConfig.m_nClientTimeOutTime);
+            }
+            GateConfig.m_nMaxConnectOfIP = ReadInteger("Integer", "MaxConnectOfIP", GateConfig.m_nMaxConnectOfIP);
+            GateConfig.m_nCheckNewIDOfIP = ReadInteger("Integer", "CheckNewIDOfIP", GateConfig.m_nCheckNewIDOfIP);
+            GateConfig.m_nClientTimeOutTime = ReadInteger("Integer", "ClientTimeOutTime", GateConfig.m_nClientTimeOutTime);
+            GateConfig.m_nNomClientPacketSize = ReadInteger("Integer", "NomClientPacketSize", GateConfig.m_nNomClientPacketSize);
+            GateConfig.m_nMaxClientPacketCount = ReadInteger("Integer", "MaxClientPacketCount", GateConfig.m_nMaxClientPacketCount);
+            GateConfig.m_fCheckNewIDOfIP = ReadBool("Switch", "CheckNewIDOfIP", GateConfig.m_fCheckNewIDOfIP);
+            GateConfig.m_fCheckNullSession = ReadBool("Switch", "CheckNullSession", GateConfig.m_fCheckNullSession);
+            GateConfig.m_fOverSpeedSendBack = ReadBool("Switch", "OverSpeedSendBack", GateConfig.m_fOverSpeedSendBack);
+            GateConfig.m_fDefenceCCPacket = ReadBool("Switch", "DefenceCCPacket", GateConfig.m_fDefenceCCPacket);
+            GateConfig.m_fKickOverSpeed = ReadBool("Switch", "KickOverSpeed", GateConfig.m_fKickOverSpeed);
+            GateConfig.m_fKickOverPacketSize = ReadBool("Switch", "KickOverPacketSize", GateConfig.m_fKickOverPacketSize);
+            GateConfig.m_tBlockIPMethod = Enum.Parse<TBlockIPMethod>(ReadString("Method", "BlockIPMethod", GateConfig.m_tBlockIPMethod.ToString()));
+            GateConfig.m_nGateCount = ReadInteger("LoginGate", "Count", GateConfig.m_nGateCount);
+            GateConfig.m_nShowLogLevel = ReadInteger("LoginGate", "ShowLogLevel", GateConfig.m_nShowLogLevel);
+            GateConfig.ShowDebugLog = ReadBool("LoginGate", "ShowDebugLog", GateConfig.ShowDebugLog);
+            for (int i = 0; i < GateConfig.m_nGateCount; i++)
+            {
+                GameGateList[i].sServerAdress = ReadString("GameGate", "ServerAddr" + i, GameGateList[i].sServerAdress);
+                GameGateList[i].nServerPort = ReadInteger("GameGate", "ServerPort" + i, GameGateList[i].nServerPort);
+                GameGateList[i].nGatePort = ReadInteger("GameGate", "GatePort" + i, GameGateList[i].nGatePort);
+            }
         }
     }
 
-    public void LoadConfig()
+    public struct GameGateInfo
     {
-        GetConfig.ClientTimeOutTime = ReadWriteInteger("Integer", "ClientTimeOutTime", GetConfig.ClientTimeOutTime);
-        if (GetConfig.ClientTimeOutTime < 10 * 1000)
-        {
-            GetConfig.ClientTimeOutTime = 10 * 1000;
-            WriteInteger("Integer", "ClientTimeOutTime", GetConfig.ClientTimeOutTime);
-        }
-
-        GetConfig.m_nMaxConnectOfIP = ReadWriteInteger("Integer", "MaxConnectOfIP", GetConfig.m_nMaxConnectOfIP);
-        GetConfig.m_nCheckNewIDOfIP = ReadWriteInteger("Integer", "CheckNewIDOfIP", GetConfig.m_nCheckNewIDOfIP);
-        GetConfig.ClientTimeOutTime = ReadWriteInteger("Integer", "ClientTimeOutTime", GetConfig.ClientTimeOutTime);
-        GetConfig.NomClientPacketSize =
-            ReadWriteInteger("Integer", "NomClientPacketSize", GetConfig.NomClientPacketSize);
-        GetConfig.MaxClientPacketCount =
-            ReadWriteInteger("Integer", "MaxClientPacketCount", GetConfig.MaxClientPacketCount);
-        GetConfig.m_fCheckNewIDOfIP = ReadWriteBool("Switch", "CheckNewIDOfIP", GetConfig.m_fCheckNewIDOfIP);
-        GetConfig.CheckNullSession = ReadWriteBool("Switch", "CheckNullSession", GetConfig.CheckNullSession);
-        GetConfig.OverSpeedSendBack = ReadWriteBool("Switch", "OverSpeedSendBack", GetConfig.OverSpeedSendBack);
-        GetConfig.DefenceCCPacket = ReadWriteBool("Switch", "DefenceCCPacket", GetConfig.DefenceCCPacket);
-        GetConfig.m_fKickOverSpeed = ReadWriteBool("Switch", "KickOverSpeed", GetConfig.m_fKickOverSpeed);
-        GetConfig.m_fKickOverPacketSize =
-            ReadWriteBool("Switch", "KickOverPacketSize", GetConfig.m_fKickOverPacketSize);
-        GetConfig.m_tBlockIPMethod =
-            Enum.Parse<TBlockIPMethod>(
-                ReadWriteString("Method", "BlockIPMethod", GetConfig.m_tBlockIPMethod.ToString()));
-        GetConfig.GateCount = ReadWriteInteger("LoginGate", "Count", GetConfig.GateCount);
-        GetConfig.ShowLogLevel = ReadWriteInteger("LoginGate", "ShowLogLevel", GetConfig.ShowLogLevel);
-        GetConfig.ShowDebug = ReadWriteBool("LoginGate", "ShowDebug", GetConfig.ShowDebug);
-        for (int i = 0; i < GetConfig.GateCount; i++)
-        {
-            GameGates[i].LoginServer = ReadWriteString("LoginGate", "ServerAddr" + i, GameGates[i].LoginServer);
-            GameGates[i].LoginPort = ReadWriteInteger("LoginGate", "ServerPort" + i, GameGates[i].LoginPort);
-            GameGates[i].GateAddress = ReadWriteString("LoginGate", "GateAddr" + i, GameGates[i].GateAddress);
-            GameGates[i].GatePort = ReadWriteInteger("LoginGate", "GatePort" + i, GameGates[i].GatePort);
-        }
-
-        SaveConfig();
+        public string sServerAdress;
+        public int nServerPort;
+        public int nGatePort;
     }
-
-    private void SaveConfig()
-    {
-        WriteInteger("Integer", "ClientTimeOutTime", GetConfig.ClientTimeOutTime);
-        WriteInteger("Integer", "MaxConnectOfIP", GetConfig.m_nMaxConnectOfIP);
-        WriteInteger("Integer", "CheckNewIDOfIP", GetConfig.m_nCheckNewIDOfIP);
-        WriteInteger("Integer", "ClientTimeOutTime", GetConfig.ClientTimeOutTime);
-        WriteInteger("Integer", "NomClientPacketSize", GetConfig.NomClientPacketSize);
-        WriteInteger("Integer", "MaxClientPacketCount", GetConfig.MaxClientPacketCount);
-        WriteBool("Switch", "CheckNewIDOfIP", GetConfig.m_fCheckNewIDOfIP);
-        WriteBool("Switch", "CheckNullSession", GetConfig.CheckNullSession);
-        WriteBool("Switch", "OverSpeedSendBack", GetConfig.OverSpeedSendBack);
-        WriteBool("Switch", "DefenceCCPacket", GetConfig.DefenceCCPacket);
-        WriteBool("Switch", "KickOverSpeed", GetConfig.m_fKickOverSpeed);
-        WriteBool("Switch", "KickOverPacketSize", GetConfig.m_fKickOverPacketSize);
-        WriteInteger("Method", "BlockIPMethod", (int)GetConfig.m_tBlockIPMethod);
-        WriteInteger("LoginGate", "Count", GetConfig.GateCount);
-        WriteInteger("LoginGate", "ShowLogLevel", GetConfig.ShowLogLevel);
-        WriteBool("LoginGate", "ShowDebug", GetConfig.ShowDebug);
-        for (int i = 0; i < GetConfig.GateCount; i++)
-        {
-            WriteString("LoginGate", "ServerAddr" + i, GameGates[i].LoginServer);
-            WriteInteger("LoginGate", "ServerPort" + i, GameGates[i].LoginPort);
-            WriteString("LoginGate", "GateAddr" + i, GameGates[i].GateAddress);
-            WriteInteger("LoginGate", "GatePort" + i, GameGates[i].GatePort);
-        }
-
-        Save();
-    }
-}
-
-public struct GameGateInfo
-{
-    /// <summary>
-    /// 服务器地址
-    /// </summary>
-    public string LoginServer;
-
-    /// <summary>
-    /// 服务器端口 默认值：5500
-    /// </summary>
-    public int LoginPort;
-
-    /// <summary>
-    /// 网关地址
-    /// </summary>
-    public string GateAddress;
-
-    /// <summary>
-    /// 网关端口 默认值：7000
-    /// </summary>
-    public int GatePort;
 }

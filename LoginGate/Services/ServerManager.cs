@@ -1,132 +1,105 @@
-﻿/// <summary>
-/// 登录网关管理器
-/// </summary>
-public class ServerManager
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using SystemModule;
+
+namespace LoginGate
 {
-    private readonly IList<ServerService> _serverServices;
-    private readonly ConfigManager _configManager;
-    private readonly SessionManager _sessionManager;
-    private readonly IServiceProvider _serviceProvider;
-
-    /// <summary>
-    /// 客户端登陆封包
-    /// </summary>
-    private readonly Channel<MessageData> _messageQueue;
-
-    /// <summary>
-    /// 登录网关管理器
-    /// </summary>
-    /// <param name="serviceProvider"></param>
-    /// <param name="sessionManager"></param>
-    /// <param name="configManager"></param>
-    public ServerManager(IServiceProvider serviceProvider, SessionManager sessionManager, ConfigManager configManager)
+    public class ServerManager
     {
-        _serviceProvider = serviceProvider;
-        _sessionManager = sessionManager;
-        _configManager = configManager;
-        _messageQueue = Channel.CreateUnbounded<MessageData>();
-        _serverServices = new List<ServerService>();
-    }
+        private static readonly ServerManager instance = new ServerManager();
 
-    public void Start()
-    {
-        for (int i = 0; i < _serverServices.Count; i++)
+        public static ServerManager Instance
         {
-            if (_serverServices[i] == null)
-            {
-                continue;
-            }
-
-            _serverServices[i].Start(_configManager.GameGates[i]);
+            get { return instance; }
         }
-    }
 
-    public void Stop()
-    {
-        for (int i = 0; i < _serverServices.Count; i++)
+        private readonly IList<ServerService> _serverServices;
+
+        
+        
+        
+        private Channel<TMessageData> _reviceMsgList = null;
+
+        public ServerManager()
         {
-            if (_serverServices[i] == null)
-            {
-                continue;
-            }
-
-            _serverServices[i].Stop();
+            _reviceMsgList = Channel.CreateUnbounded<TMessageData>();
+            _serverServices = new List<ServerService>();
         }
-    }
 
-    public int ReceiveQueueCount()
-    {
-        return _messageQueue.Reader.Count;
-    }
-
-    /// <summary>
-    /// 添加到消息队列
-    /// </summary>
-    /// <param name="messageData"></param>
-    public void SendQueue(MessageData messageData)
-    {
-        _messageQueue.Writer.TryWrite(messageData);
-    }
-
-    /// <summary>
-    /// 客户端登陆消息封包
-    /// </summary>
-    public void ProcessLoginMessage(CancellationToken stoppingToken)
-    {
-        Task.Factory.StartNew(async () =>
+        public void AddServer(ServerService serverService)
         {
-            while (await _messageQueue.Reader.WaitToReadAsync(stoppingToken))
+            _serverServices.Add(serverService);
+        }
+
+        public void RemoveServer(ServerService serverService)
+        {
+            _serverServices.Remove(serverService);
+        }
+
+        public void Start()
+        {
+            for (var i = 0; i < _serverServices.Count; i++)
             {
-                if (_messageQueue.Reader.TryRead(out MessageData message))
+                if (_serverServices[i] == null)
                 {
-                    ClientSession userSession = _sessionManager.GetSession(message.ConnectionId);
-                    if (userSession == null)
-                    {
-                        LogService.Warn("非法攻击: " + message.ClientIP);
-                        LogService.Info(
-                            $"获取用户对应会话失败 RemoteAddr:[{message.ClientIP}] ConnectionId:[{message.ConnectionId}]");
-                        continue;
-                    }
+                    continue;
+                }
+                _serverServices[i].Start();
+            }
+        }
 
-                    if (!userSession.ClientThread.ConnectState)
-                    {
-                        LogService.Info("未就绪: " + message.ClientIP);
-                        LogService.Info(
-                            $"账号服务器链接失败 Server:[{userSession.ClientThread.EndPoint}] ConnectionId:[{message.ConnectionId}]");
-                        continue;
-                    }
+        public void Stop()
+        {
+            for (var i = 0; i < _serverServices.Count; i++)
+            {
+                if (_serverServices[i] == null)
+                {
+                    continue;
+                }
+                _serverServices[i].Stop();
+            }
+        }
 
-                    try
-                    {
-                        userSession.ProcessClientPacket(message);
-                    }
-                    catch (Exception e)
-                    {
-                        LogService.Error(e);
-                    }
+        public void SendQueue(TMessageData messageData)
+        {
+            _reviceMsgList.Writer.TryWrite(messageData);
+        }
+
+        
+        
+        
+        public async Task ProcessReviceMessage()
+        {
+            while (await _reviceMsgList.Reader.WaitToReadAsync())
+            {
+                if (_reviceMsgList.Reader.TryRead(out var message))
+                {
+                    var clientSession = SessionManager.Instance.GetSession(message.MessageId);
+                    clientSession?.HandleUserPacket(message);
                 }
             }
-        }, stoppingToken, TaskCreationOptions.LongRunning, TaskScheduler.Current);
-    }
-
-    public void Initialization()
-    {
-        for (int i = 0; i < _configManager.GetConfig.GateCount; i++)
-        {
-            ServerService gateService = (ServerService)_serviceProvider.GetService(typeof(ServerService));
-            AddServer(gateService);
         }
 
-        LogService.Info($"初始化网关服务完成.[{_serverServices.Count}]");
-    }
+        public IList<ServerService> GetServerList()
+        {
+            return _serverServices;
+        }
 
-    private void AddServer(ServerService serverService)
-    {
-        _serverServices.Add(serverService);
-    }
-
-    public IList<ServerService> GetServerList()
-    {
-        return _serverServices;
+        public ClientThread GetClientThread()
+        {
+            
+            
+            
+            
+            
+            if (_serverServices.Any())
+            {
+                var random = RandomNumber.GetInstance().Random(_serverServices.Count);
+                return _serverServices[random].ClientThread;
+            }
+            return null;
+        }
     }
 }
