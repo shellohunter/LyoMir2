@@ -1,8 +1,13 @@
-热血传奇服务端，支持AOT，跨平台，有界面。基于openm2项目。
-
+盛大版热血传奇服务端，dotnet8.0
 </br>
 </br>
-配套资源文件在QQ群共享文件中，群号：1063081017
+Windows用户推荐使用LyoConsole管理器进行一键启停：https://github.com/AndrewChien/LyoConsole/releases/tag/v1.0.0
+</br>
+</br>
+登录器及登录器配置器项目地址：https://github.com/AndrewChien/LyoMirWorldLauncher/releases/tag/v1.0.0
+</br>
+</br>
+因法律及其他问题，配套资源文件放在QQ群，群号：1063081017
 </br>
 </br>
 
